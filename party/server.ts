@@ -1252,6 +1252,16 @@ export default class LoveLetterServer implements Party.Server {
             result: `Guessed ${guardGuess} - incorrect!`,
           });
         }
+
+        // Broadcast guard reveal to all players
+        this.broadcast({
+          type: "guardReveal",
+          guesserName: player.name,
+          targetName: target.name,
+          guess: guardGuess,
+          correct,
+        });
+
         this.finishTurn();
         break;
       }
@@ -1345,12 +1355,16 @@ export default class LoveLetterServer implements Party.Server {
           yourCard: myCard,
           theirCard,
           loserId,
+          yourName: player.name,
+          theirName: target.name,
         });
         this.sendToPlayer(target.id, {
           type: "baronReveal",
           yourCard: theirCard,
           theirCard: myCard,
           loserId,
+          yourName: target.name,
+          theirName: player.name,
         });
 
         // Track known cards for both
@@ -1507,6 +1521,15 @@ export default class LoveLetterServer implements Party.Server {
     // Target discards their hand
     const discarded = target.hand.splice(0, target.hand.length);
     target.discardPile.push(...discarded);
+
+    // Broadcast prince discard to all players
+    if (discarded.length > 0) {
+      this.broadcast({
+        type: "princeDiscard",
+        card: discarded[0],
+        targetName: target.name,
+      });
+    }
 
     // Track spy if Princess is discarded
     for (const c of discarded) {

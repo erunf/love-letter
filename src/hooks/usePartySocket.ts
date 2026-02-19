@@ -133,7 +133,43 @@ export function usePartySocket(roomCode: string | null): {
   return { send, isConnected };
 }
 
+// ─── Effect Text Helper ─────────────────────────────────────────────
+
+function getCardEffectText(
+  cardName: string,
+  targetName?: string
+): string | undefined {
+  switch (cardName) {
+    case "Guard":
+      return "Guess a player\u2019s card";
+    case "Priest":
+      return "Look at a hand";
+    case "Baron":
+      return "Compare hands";
+    case "Prince":
+      return "Force a discard";
+    case "King":
+      return targetName
+        ? `Swap hands with ${targetName}`
+        : "Trade hands";
+    case "Handmaid":
+      return "Protected until next turn";
+    case "Countess":
+      return "Discarded with no effect";
+    case "Princess":
+      return "Eliminated!";
+    case "Spy":
+      return "No immediate effect";
+    case "Chancellor":
+      return "Draw and choose";
+    default:
+      return undefined;
+  }
+}
+
 // ─── Message Handler ─────────────────────────────────────────────────
+
+let announcementTimer: ReturnType<typeof setTimeout> | null = null;
 
 function handleMessage(msg: ServerMessage, roomCode: string): void {
   const s = useOnlineStore.getState();
@@ -197,19 +233,25 @@ function handleMessage(msg: ServerMessage, roomCode: string): void {
     }
 
     case "cardPlayed": {
-      s.setLastCardPlayed({
-        playerId: msg.playerId,
+      const yourId = useOnlineStore.getState().yourPlayerId;
+      const isYourPlay = msg.playerId === yourId;
+      const duration = isYourPlay ? 1300 : 2000;
+
+      const effectText = getCardEffectText(msg.card.name, msg.targetName);
+
+      s.setCardAnnouncement({
         card: msg.card,
-        targetName: msg.targetName,
+        playerName: msg.playerName,
+        effectText,
+        duration,
       });
-      if (msg.result) {
-        s.setToast(msg.result);
-        clearToastAfterDelay(3000);
-      }
-      // Clear last card played after animation
-      setTimeout(() => {
-        useOnlineStore.getState().setLastCardPlayed(null);
-      }, 2000);
+
+      // Auto-clear after duration
+      if (announcementTimer) clearTimeout(announcementTimer);
+      announcementTimer = setTimeout(() => {
+        useOnlineStore.getState().setCardAnnouncement(null);
+        announcementTimer = null;
+      }, duration);
       break;
     }
 
@@ -219,13 +261,31 @@ function handleMessage(msg: ServerMessage, roomCode: string): void {
     }
 
     case "baronReveal": {
-      const result = msg.loserId
-        ? msg.loserId === useOnlineStore.getState().yourPlayerId
-          ? `You lost! Your ${msg.yourCard.name} (${msg.yourCard.value}) vs their ${msg.theirCard.name} (${msg.theirCard.value})`
-          : `You won! Your ${msg.yourCard.name} (${msg.yourCard.value}) vs their ${msg.theirCard.name} (${msg.theirCard.value})`
-        : `Tie! Both have value ${msg.yourCard.value}`;
-      s.setToast(result);
-      clearToastAfterDelay(4000);
+      s.setBaronReveal({
+        yourCard: msg.yourCard,
+        theirCard: msg.theirCard,
+        yourName: msg.yourName,
+        theirName: msg.theirName,
+        loserId: msg.loserId,
+      });
+      break;
+    }
+
+    case "guardReveal": {
+      s.setGuardReveal({
+        guesserName: msg.guesserName,
+        targetName: msg.targetName,
+        guess: msg.guess,
+        correct: msg.correct,
+      });
+      break;
+    }
+
+    case "princeDiscard": {
+      s.setPrinceDiscard({
+        card: msg.card,
+        targetName: msg.targetName,
+      });
       break;
     }
 

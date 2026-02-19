@@ -2,7 +2,7 @@
 // Wraps the online game with PartyKit connection, SendContext, and
 // phase-based routing.
 
-import { createContext, useContext, useCallback, useEffect, useState } from "react";
+import { createContext, useContext, useCallback, useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Card, CardName } from "./types/game";
 import type { ClientMessage, GameSnapshot } from "./types/protocol";
@@ -431,12 +431,21 @@ function OnlineWaitingRoom({ onLeave }: { onLeave: () => void }) {
 function OnlineCardPlayAnnouncement({
   card,
   playerName,
-  targetName,
+  effectText,
+  duration = 2000,
+  onDone,
 }: {
   card: Card;
   playerName: string;
-  targetName?: string;
+  effectText?: string;
+  duration?: number;
+  onDone: () => void;
 }) {
+  useEffect(() => {
+    const timer = setTimeout(onDone, duration);
+    return () => clearTimeout(timer);
+  }, [onDone, duration]);
+
   const colors = CARD_COLORS[card.value];
   return (
     <motion.div
@@ -476,9 +485,9 @@ function OnlineCardPlayAnnouncement({
         >
           <CharacterCard card={card} size="lg" highlighted />
         </motion.div>
-        {targetName && (
+        {effectText && (
           <motion.div
-            className="text-sm font-semibold text-center px-5 py-2 rounded-lg"
+            className="text-sm font-semibold text-center px-5 py-2 rounded-lg max-w-xs"
             style={{
               fontFamily: "'Crimson Text', serif",
               color: THEME.goldLight,
@@ -489,8 +498,410 @@ function OnlineCardPlayAnnouncement({
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
           >
-            Target: {targetName}
+            {effectText}
           </motion.div>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── Guard Reveal Overlay ──────────────────────────────────────────
+
+function OnlineGuardRevealOverlay({
+  guesserName,
+  targetName,
+  guess,
+  correct,
+  onDismiss,
+}: {
+  guesserName: string;
+  targetName: string;
+  guess: CardName;
+  correct: boolean;
+  onDismiss: () => void;
+}) {
+  const [showResult, setShowResult] = useState(false);
+  const def = getCardDef(guess);
+  const colors = CARD_COLORS[def.value];
+
+  useEffect(() => {
+    const resultTimer = setTimeout(() => setShowResult(true), 1500);
+    const dismissTimer = setTimeout(onDismiss, 4000);
+    return () => {
+      clearTimeout(resultTimer);
+      clearTimeout(dismissTimer);
+    };
+  }, [onDismiss]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={showResult ? onDismiss : undefined}
+    >
+      <div className="absolute inset-0 bg-black/50" />
+      <motion.div
+        className="glass-modal relative z-10 p-6 text-center max-w-sm"
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.8, opacity: 0 }}
+      >
+        <h3
+          className="text-lg font-bold mb-1"
+          style={{ fontFamily: "'Cinzel', serif", color: THEME.goldLight }}
+        >
+          Guard&apos;s Interrogation
+        </h3>
+        <OrnamentRow symbol="seal" className="my-3" />
+
+        {/* Question */}
+        <p className="text-sm mb-1" style={{ color: THEME.textSecondary }}>
+          {guesserName} asks {targetName}:
+        </p>
+        <p
+          className="text-xl font-bold mb-4"
+          style={{ fontFamily: "'Cinzel', serif", color: colors.accent }}
+        >
+          &ldquo;Do you have a {guess}?&rdquo;
+        </p>
+
+        {/* Result */}
+        {showResult && (
+          <motion.div
+            className="flex flex-col items-center gap-2"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: "spring", damping: 12, stiffness: 200 }}
+          >
+            <motion.svg
+              width="64"
+              height="64"
+              viewBox="0 0 64 64"
+              className="mb-1"
+            >
+              {correct ? (
+                <>
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    fill={`${THEME.gold}15`}
+                    stroke={THEME.gold}
+                    strokeWidth="2.5"
+                    opacity="0.6"
+                  />
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="25"
+                    fill="none"
+                    stroke={THEME.gold}
+                    strokeWidth="0.5"
+                    opacity="0.3"
+                  />
+                  <path
+                    d="M18 32 L27 41 L46 22"
+                    fill="none"
+                    stroke={THEME.gold}
+                    strokeWidth="4.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </>
+              ) : (
+                <>
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    fill={`${THEME.crimsonLight}15`}
+                    stroke={THEME.crimsonLight}
+                    strokeWidth="2.5"
+                    opacity="0.6"
+                  />
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="25"
+                    fill="none"
+                    stroke={THEME.crimsonLight}
+                    strokeWidth="0.5"
+                    opacity="0.3"
+                  />
+                  <line
+                    x1="22"
+                    y1="22"
+                    x2="42"
+                    y2="42"
+                    stroke={THEME.crimsonLight}
+                    strokeWidth="4.5"
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1="42"
+                    y1="22"
+                    x2="22"
+                    y2="42"
+                    stroke={THEME.crimsonLight}
+                    strokeWidth="4.5"
+                    strokeLinecap="round"
+                  />
+                </>
+              )}
+            </motion.svg>
+            <p
+              className="text-sm font-bold"
+              style={{
+                fontFamily: "'Cinzel', serif",
+                color: correct ? THEME.gold : THEME.crimsonLight,
+              }}
+            >
+              {correct
+                ? `Correct! ${targetName} is eliminated!`
+                : "Wrong guess."}
+            </p>
+          </motion.div>
+        )}
+
+        {showResult && (
+          <p className="text-xs mt-3" style={{ color: THEME.textMuted }}>
+            Tap anywhere to dismiss
+          </p>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── Baron Reveal Overlay ──────────────────────────────────────────
+
+function OnlineBaronRevealOverlay({
+  yourCard,
+  theirCard,
+  yourName,
+  theirName,
+  loserId,
+  yourPlayerId,
+  onDismiss,
+}: {
+  yourCard: Card;
+  theirCard: Card;
+  yourName: string;
+  theirName: string;
+  loserId: string | null;
+  yourPlayerId: string;
+  onDismiss: () => void;
+}) {
+  const [showResult, setShowResult] = useState(false);
+
+  useEffect(() => {
+    const resultTimer = setTimeout(() => setShowResult(true), 1200);
+    const dismissTimer = setTimeout(onDismiss, 4500);
+    return () => {
+      clearTimeout(resultTimer);
+      clearTimeout(dismissTimer);
+    };
+  }, [onDismiss]);
+
+  const resultText =
+    loserId === null
+      ? "Tie! No one is eliminated."
+      : loserId === yourPlayerId
+        ? `${yourName} loses! (${yourCard.value} vs ${theirCard.value})`
+        : `${theirName} loses! (${theirCard.value} vs ${yourCard.value})`;
+
+  const EliminationX = () => (
+    <motion.div
+      className="absolute inset-0 flex items-center justify-center"
+      initial={{ scale: 0, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: "spring", damping: 12, stiffness: 200 }}
+    >
+      <svg width="64" height="64" viewBox="0 0 64 64">
+        <circle
+          cx="32"
+          cy="32"
+          r="28"
+          fill="rgba(0,0,0,0.5)"
+          stroke={THEME.crimsonLight}
+          strokeWidth="2.5"
+          opacity="0.7"
+        />
+        <circle
+          cx="32"
+          cy="32"
+          r="25"
+          fill="none"
+          stroke={THEME.crimsonLight}
+          strokeWidth="0.5"
+          opacity="0.4"
+        />
+        <line
+          x1="20"
+          y1="20"
+          x2="44"
+          y2="44"
+          stroke={THEME.crimsonLight}
+          strokeWidth="5"
+          strokeLinecap="round"
+        />
+        <line
+          x1="44"
+          y1="20"
+          x2="20"
+          y2="44"
+          stroke={THEME.crimsonLight}
+          strokeWidth="5"
+          strokeLinecap="round"
+        />
+      </svg>
+    </motion.div>
+  );
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={showResult ? onDismiss : undefined}
+    >
+      <div className="absolute inset-0 bg-black/50" />
+      <motion.div
+        className="glass-modal relative z-10 p-6 text-center"
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.8, opacity: 0 }}
+      >
+        <h3
+          className="text-lg font-bold mb-1"
+          style={{ fontFamily: "'Cinzel', serif", color: THEME.goldLight }}
+        >
+          Baron&apos;s Comparison
+        </h3>
+        <OrnamentRow symbol="seal" className="my-3" />
+        <div className="flex justify-center gap-6 items-end mb-4">
+          <div className="text-center">
+            <p
+              className="text-xs mb-2"
+              style={{ color: THEME.textSecondary }}
+            >
+              {yourName}
+            </p>
+            <div className="relative">
+              <CharacterCard card={yourCard} size="md" />
+              {showResult && loserId === yourPlayerId && <EliminationX />}
+            </div>
+          </div>
+          <div
+            className="text-xl font-bold pb-10"
+            style={{
+              fontFamily: "'Cinzel', serif",
+              color: THEME.gold,
+            }}
+          >
+            vs
+          </div>
+          <div className="text-center">
+            <p
+              className="text-xs mb-2"
+              style={{ color: THEME.textSecondary }}
+            >
+              {theirName}
+            </p>
+            <div className="relative">
+              <CharacterCard card={theirCard} size="md" />
+              {showResult &&
+                loserId !== null &&
+                loserId !== yourPlayerId && <EliminationX />}
+            </div>
+          </div>
+        </div>
+        {showResult && (
+          <motion.p
+            className="text-sm font-semibold"
+            style={{
+              color: loserId ? THEME.crimsonLight : THEME.textSecondary,
+            }}
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            {resultText}
+          </motion.p>
+        )}
+        {showResult && (
+          <p className="text-xs mt-2" style={{ color: THEME.textMuted }}>
+            Tap anywhere to dismiss
+          </p>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── Prince Discard Overlay ────────────────────────────────────────
+
+function OnlinePrinceDiscardOverlay({
+  card,
+  targetName,
+  onDismiss,
+}: {
+  card: Card;
+  targetName: string;
+  onDismiss: () => void;
+}) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 3000);
+    return () => clearTimeout(timer);
+  }, [onDismiss]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onDismiss}
+    >
+      <div className="absolute inset-0 bg-black/50" />
+      <motion.div
+        className="glass-modal relative z-10 p-6 text-center"
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.8, opacity: 0 }}
+      >
+        <h3
+          className="text-lg font-bold mb-1"
+          style={{ fontFamily: "'Cinzel', serif", color: THEME.goldLight }}
+        >
+          Prince&apos;s Decree
+        </h3>
+        <p className="text-sm mb-4" style={{ color: THEME.textSecondary }}>
+          {targetName} must discard:
+        </p>
+        <div className="flex justify-center mb-4">
+          <motion.div
+            initial={{ rotateY: 90 }}
+            animate={{ rotateY: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <CharacterCard card={card} size="lg" />
+          </motion.div>
+        </div>
+        {card.name === "Princess" ? (
+          <p
+            className="text-sm font-semibold"
+            style={{ color: THEME.crimsonLight }}
+          >
+            Princess discarded &mdash; {targetName} is eliminated!
+          </p>
+        ) : (
+          <p className="text-xs" style={{ color: THEME.textMuted }}>
+            {targetName} draws a new card
+          </p>
         )}
       </motion.div>
     </motion.div>
@@ -560,24 +971,47 @@ function OnlineGameScreen() {
   const send = useSend();
   const snapshot = useOnlineStore((s) => s.snapshot);
   const yourPlayerId = useOnlineStore((s) => s.yourPlayerId);
-  const lastCardPlayed = useOnlineStore((s) => s.lastCardPlayed);
+  const cardAnnouncement = useOnlineStore((s) => s.cardAnnouncement);
   const priestPeek = useOnlineStore((s) => s.priestPeek);
+  const baronReveal = useOnlineStore((s) => s.baronReveal);
+  const guardReveal = useOnlineStore((s) => s.guardReveal);
+  const princeDiscard = useOnlineStore((s) => s.princeDiscard);
+
   const [showPriestPeek, setShowPriestPeek] = useState<{
     card: Card;
     targetName: string;
   } | null>(null);
 
-  // When priestPeek arrives from store, queue it to show after the card play animation
+  // Show turn banner when current player changes
+  const prevPlayerIndexRef = useRef<number | null>(null);
+  const [turnBanner, setTurnBanner] = useState<{
+    name: string;
+    color: string;
+  } | null>(null);
+
   useEffect(() => {
-    if (!priestPeek) return;
-    // Delay showing peek until after card play announcement fades (2s)
-    const delay = lastCardPlayed ? 2200 : 300;
-    const timer = setTimeout(() => {
-      setShowPriestPeek(priestPeek);
-      useOnlineStore.getState().setPriestPeek(null);
-    }, delay);
-    return () => clearTimeout(timer);
-  }, [priestPeek, lastCardPlayed]);
+    if (!snapshot || snapshot.phase !== "playing") {
+      prevPlayerIndexRef.current = null;
+      return;
+    }
+    const idx = snapshot.currentPlayerIndex;
+    if (prevPlayerIndexRef.current !== null && prevPlayerIndexRef.current !== idx) {
+      const player = snapshot.players[idx];
+      if (player) {
+        setTurnBanner({ name: player.name, color: player.color });
+        const timer = setTimeout(() => setTurnBanner(null), 1300);
+        return () => clearTimeout(timer);
+      }
+    }
+    prevPlayerIndexRef.current = idx;
+  }, [snapshot?.currentPlayerIndex, snapshot?.phase, snapshot?.players]);
+
+  // Show priest peek after card announcement and other overlays clear
+  useEffect(() => {
+    if (!priestPeek || cardAnnouncement || guardReveal || baronReveal || princeDiscard) return;
+    setShowPriestPeek(priestPeek);
+    useOnlineStore.getState().setPriestPeek(null);
+  }, [priestPeek, cardAnnouncement, guardReveal, baronReveal, princeDiscard]);
 
   if (!snapshot || !yourPlayerId) return null;
 
@@ -587,19 +1021,65 @@ function OnlineGameScreen() {
   const me = players.find((p) => p.id === yourPlayerId);
   const faceUpCards = snapshot.faceUpCards ?? [];
   const myHand = me?.hand ?? [];
-  const lastPlayedPlayerName = lastCardPlayed
-    ? players.find((p) => p.id === lastCardPlayed.playerId)?.name ?? "Someone"
-    : "";
+
+  // Gate modals on no active overlays
+  const hasActiveOverlay = !!(cardAnnouncement || guardReveal || baronReveal || princeDiscard);
 
   return (
     <div className="w-full min-h-screen flex flex-col relative">
-      {/* Card Play Animation */}
+      {/* Turn Banner */}
       <AnimatePresence>
-        {lastCardPlayed && (
+        {turnBanner && !hasActiveOverlay && (
+          <motion.div
+            className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="absolute inset-0 bg-black/30 pointer-events-none" />
+            <motion.div
+              className="relative z-10 flex flex-col items-center gap-2"
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+            >
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold"
+                style={{
+                  background: `${turnBanner.color}30`,
+                  color: turnBanner.color,
+                  border: `2px solid ${turnBanner.color}60`,
+                }}
+              >
+                {turnBanner.name.charAt(0)}
+              </div>
+              <div
+                className="text-2xl font-bold"
+                style={{
+                  fontFamily: "'Cinzel', serif",
+                  color: turnBanner.color,
+                  textShadow: `0 0 20px ${turnBanner.color}60`,
+                }}
+              >
+                {turnBanner.name}&apos;s Turn
+              </div>
+              <OrnamentRow symbol="fleur" className="mt-1" />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Card Play Announcement */}
+      <AnimatePresence>
+        {cardAnnouncement && (
           <OnlineCardPlayAnnouncement
-            card={lastCardPlayed.card}
-            playerName={lastPlayedPlayerName}
-            targetName={lastCardPlayed.targetName}
+            card={cardAnnouncement.card}
+            playerName={cardAnnouncement.playerName}
+            effectText={cardAnnouncement.effectText}
+            duration={cardAnnouncement.duration}
+            onDone={() => useOnlineStore.getState().setCardAnnouncement(null)}
           />
         )}
       </AnimatePresence>
@@ -702,7 +1182,7 @@ function OnlineGameScreen() {
         </div>
 
         {/* Turn Phase Indicator */}
-        {isMyTurn && snapshot.turnPhase === "choosing" && (
+        {isMyTurn && snapshot.turnPhase === "choosing" && !hasActiveOverlay && (
           <motion.div
             className="glass-subtle px-4 py-2 rounded-lg text-center"
             initial={{ opacity: 0, y: 10 }}
@@ -734,7 +1214,7 @@ function OnlineGameScreen() {
               <AnimatePresence>
                 {myHand.map((card, idx) => {
                   const isPlayable =
-                    isMyTurn && snapshot.turnPhase === "choosing";
+                    isMyTurn && snapshot.turnPhase === "choosing" && !hasActiveOverlay;
                   return (
                     <motion.div
                       key={`hand-${card.name}-${card.value}-${idx}`}
@@ -781,9 +1261,46 @@ function OnlineGameScreen() {
         )}
       </div>
 
-      {/* ─── Modals ──────────────────────────────────────────────────── */}
+      {/* ─── Reveal Overlays (gated on card announcement) ──────────── */}
       <AnimatePresence>
-        {isMyTurn && snapshot.pendingTargetSelection && (
+        {!cardAnnouncement && guardReveal && (
+          <OnlineGuardRevealOverlay
+            guesserName={guardReveal.guesserName}
+            targetName={guardReveal.targetName}
+            guess={guardReveal.guess}
+            correct={guardReveal.correct}
+            onDismiss={() => useOnlineStore.getState().setGuardReveal(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {!cardAnnouncement && baronReveal && (
+          <OnlineBaronRevealOverlay
+            yourCard={baronReveal.yourCard}
+            theirCard={baronReveal.theirCard}
+            yourName={baronReveal.yourName}
+            theirName={baronReveal.theirName}
+            loserId={baronReveal.loserId}
+            yourPlayerId={yourPlayerId}
+            onDismiss={() => useOnlineStore.getState().setBaronReveal(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {!cardAnnouncement && princeDiscard && (
+          <OnlinePrinceDiscardOverlay
+            card={princeDiscard.card}
+            targetName={princeDiscard.targetName}
+            onDismiss={() => useOnlineStore.getState().setPrinceDiscard(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ─── Modals (gated on no active overlays) ─────────────────── */}
+      <AnimatePresence>
+        {!hasActiveOverlay && isMyTurn && snapshot.pendingTargetSelection && (
           <OnlineTargetModal
             snapshot={snapshot}
             yourPlayerId={yourPlayerId}
@@ -791,9 +1308,12 @@ function OnlineGameScreen() {
           />
         )}
 
-        {isMyTurn && snapshot.pendingGuardGuess && <OnlineGuardGuessModal />}
+        {!hasActiveOverlay && isMyTurn && snapshot.pendingGuardGuess && (
+          <OnlineGuardGuessModal />
+        )}
 
-        {isMyTurn &&
+        {!hasActiveOverlay &&
+          isMyTurn &&
           snapshot.pendingChancellorPick &&
           snapshot.chancellorOptions && (
             <OnlineChancellorModal
@@ -801,7 +1321,7 @@ function OnlineGameScreen() {
             />
           )}
 
-        {showPriestPeek && (
+        {!hasActiveOverlay && showPriestPeek && (
           <OnlinePriestPeekOverlay
             card={showPriestPeek.card}
             targetName={showPriestPeek.targetName}

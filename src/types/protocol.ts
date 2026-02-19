@@ -30,7 +30,9 @@ export type ServerMessage =
   | { type: 'authResult'; success: boolean; user?: { id: string } }
   | { type: 'cardPlayed'; playerId: string; playerName: string; card: Card; targetName?: string; result?: string }
   | { type: 'priestPeek'; card: Card; targetName: string }     // Only sent to the priest player
-  | { type: 'baronReveal'; yourCard: Card; theirCard: Card; loserId: string | null }
+  | { type: 'baronReveal'; yourCard: Card; theirCard: Card; loserId: string | null; yourName: string; theirName: string }
+  | { type: 'guardReveal'; guesserName: string; targetName: string; guess: CardName; correct: boolean }
+  | { type: 'princeDiscard'; card: Card; targetName: string }
   | { type: 'roundOver'; result: RoundResult }
   | { type: 'gameOver'; winnerId: string; winnerName: string };
 
