@@ -1,0 +1,10 @@
+{
+  "name": "love-letter",
+  "main": "party/server.ts",
+  "compatibilityDate": "2024-12-01",
+  "vars": {
+    "GOOGLE_CLIENT_ID": "230349721442-mvscsv04ps908kjgb96m5q6scv3d65hq.apps.googleusercontent.com",
+    "CF_D1_DATABASE_ID": "9a3fcd20-3de6-46bf-939b-abf23405bc07",
+    "CF_ACCOUNT_ID": "ca544e4004cf8994f61047a8489a53da"
+  }
+}
