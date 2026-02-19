@@ -5,6 +5,7 @@ import PartySocket from "partysocket";
 import type { ClientMessage, ServerMessage } from "../types/protocol";
 import { useOnlineStore } from "../store/onlineStore";
 import { useAuthStore } from "../store/authStore";
+import type { LogEntry } from "../components/ui/ActionLog";
 
 const PARTYKIT_HOST =
   import.meta.env.VITE_PARTYKIT_HOST || "localhost:1999";
@@ -123,10 +124,33 @@ export function usePartySocket(roomCode: string | null): {
       handleMessage(msg, roomCode);
     });
 
+    // Subscribe to store to auto-advance animation queue when overlays clear
+    const unsubscribe = store.subscribe((state, prevState) => {
+      const wasAnimating = !!(
+        prevState.cardAnnouncement ||
+        prevState.guardReveal ||
+        prevState.baronReveal ||
+        prevState.baronResult ||
+        prevState.princeDiscard
+      );
+      const isAnimating = !!(
+        state.cardAnnouncement ||
+        state.guardReveal ||
+        state.baronReveal ||
+        state.baronResult ||
+        state.princeDiscard
+      );
+      if (wasAnimating && !isAnimating) {
+        tryProcessNext();
+      }
+    });
+
     return () => {
       socket.close();
       socketRef.current = null;
       store.getState().setConnected(false);
+      unsubscribe();
+      animQueue.length = 0;
     };
   }, [roomCode, store]);
 
@@ -167,9 +191,74 @@ function getCardEffectText(
   }
 }
 
-// ─── Message Handler ─────────────────────────────────────────────────
+// ─── Animation Queue ────────────────────────────────────────────────
 
-let announcementTimer: ReturnType<typeof setTimeout> | null = null;
+type AnimEvent =
+  | { kind: "cardAnnouncement"; data: { card: { name: string; value: number }; playerName: string; effectText?: string; duration: number } }
+  | { kind: "guardReveal"; data: { guesserName: string; targetName: string; guess: string; correct: boolean } }
+  | { kind: "baronReveal"; data: { yourCard: { name: string; value: number }; theirCard: { name: string; value: number }; yourName: string; theirName: string; loserId: string | null } }
+  | { kind: "baronResult"; data: { playerName: string; targetName: string; loserName: string | null; loserCard: { name: string; value: number } | null; isTie: boolean } }
+  | { kind: "princeDiscard"; data: { card: { name: string; value: number }; targetName: string } };
+
+const animQueue: AnimEvent[] = [];
+
+function isAnimBusy(): boolean {
+  const s = useOnlineStore.getState();
+  return !!(
+    s.cardAnnouncement ||
+    s.guardReveal ||
+    s.baronReveal ||
+    s.baronResult ||
+    s.princeDiscard
+  );
+}
+
+function enqueueAnim(event: AnimEvent): void {
+  animQueue.push(event);
+  useOnlineStore.getState().setAnimQueueSize(animQueue.length);
+  tryProcessNext();
+}
+
+function tryProcessNext(): void {
+  if (isAnimBusy() || animQueue.length === 0) return;
+
+  const event = animQueue.shift()!;
+  useOnlineStore.getState().setAnimQueueSize(animQueue.length);
+  const s = useOnlineStore.getState();
+
+  switch (event.kind) {
+    case "cardAnnouncement":
+      s.setCardAnnouncement(event.data as any);
+      break;
+    case "guardReveal":
+      s.setGuardReveal(event.data as any);
+      break;
+    case "baronReveal":
+      s.setBaronReveal(event.data as any);
+      break;
+    case "baronResult":
+      s.setBaronResult(event.data as any);
+      break;
+    case "princeDiscard":
+      s.setPrinceDiscard(event.data as any);
+      break;
+  }
+}
+
+// ─── Log Helper ─────────────────────────────────────────────────────
+
+let logCounter = 0;
+
+function addLog(message: string, type: LogEntry["type"] = "info"): void {
+  useOnlineStore.getState().addLogEntry({
+    id: `log-${Date.now()}-${logCounter++}`,
+    message,
+    timestamp: Date.now(),
+    type,
+  });
+}
+
+// ─── Message Handler ─────────────────────────────────────────────────
 
 function handleMessage(msg: ServerMessage, roomCode: string): void {
   const s = useOnlineStore.getState();
@@ -191,12 +280,14 @@ function handleMessage(msg: ServerMessage, roomCode: string): void {
     case "playerJoined": {
       s.setToast(`${msg.playerName} joined`);
       clearToastAfterDelay();
+      addLog(`${msg.playerName} joined the room`, "info");
       break;
     }
 
     case "playerLeft": {
       s.setToast(`${msg.playerName} left`);
       clearToastAfterDelay();
+      addLog(`${msg.playerName} left the room`, "info");
       break;
     }
 
@@ -220,7 +311,6 @@ function handleMessage(msg: ServerMessage, roomCode: string): void {
 
     case "authResult": {
       if (msg.success && msg.user) {
-        // Update auth store with server-confirmed user ID
         const authState = useAuthStore.getState();
         if (authState.user) {
           useAuthStore.getState().setUser({
@@ -236,56 +326,101 @@ function handleMessage(msg: ServerMessage, roomCode: string): void {
       const yourId = useOnlineStore.getState().yourPlayerId;
       const isYourPlay = msg.playerId === yourId;
       const duration = isYourPlay ? 1300 : 2000;
-
       const effectText = getCardEffectText(msg.card.name, msg.targetName);
 
-      s.setCardAnnouncement({
-        card: msg.card,
-        playerName: msg.playerName,
-        effectText,
-        duration,
+      enqueueAnim({
+        kind: "cardAnnouncement",
+        data: {
+          card: msg.card,
+          playerName: msg.playerName,
+          effectText,
+          duration,
+        },
       });
 
-      // Auto-clear after duration
-      if (announcementTimer) clearTimeout(announcementTimer);
-      announcementTimer = setTimeout(() => {
-        useOnlineStore.getState().setCardAnnouncement(null);
-        announcementTimer = null;
-      }, duration);
+      // Log
+      const targetPart = msg.targetName ? ` → ${msg.targetName}` : "";
+      addLog(`${msg.playerName} plays ${msg.card.name}${targetPart}`, "play");
       break;
     }
 
     case "priestPeek": {
       s.setPriestPeek({ card: msg.card, targetName: msg.targetName });
+      addLog(`You peeked at ${msg.targetName}'s card`, "effect");
       break;
     }
 
     case "baronReveal": {
-      s.setBaronReveal({
-        yourCard: msg.yourCard,
-        theirCard: msg.theirCard,
-        yourName: msg.yourName,
-        theirName: msg.theirName,
-        loserId: msg.loserId,
+      enqueueAnim({
+        kind: "baronReveal",
+        data: {
+          yourCard: msg.yourCard,
+          theirCard: msg.theirCard,
+          yourName: msg.yourName,
+          theirName: msg.theirName,
+          loserId: msg.loserId,
+        },
       });
+      if (msg.loserId) {
+        const loserName = msg.loserId === useOnlineStore.getState().yourPlayerId
+          ? msg.yourName : msg.theirName;
+        addLog(`Baron: ${loserName} is eliminated!`, "elimination");
+      } else {
+        addLog(`Baron: ${msg.yourName} and ${msg.theirName} tied!`, "effect");
+      }
+      break;
+    }
+
+    case "baronResult": {
+      enqueueAnim({
+        kind: "baronResult",
+        data: {
+          playerName: msg.playerName,
+          targetName: msg.targetName,
+          loserName: msg.loserName,
+          loserCard: msg.loserCard,
+          isTie: msg.isTie,
+        },
+      });
+      if (msg.loserName) {
+        addLog(`Baron: ${msg.loserName} is eliminated!`, "elimination");
+      } else {
+        addLog(`Baron: ${msg.playerName} and ${msg.targetName} tied!`, "effect");
+      }
       break;
     }
 
     case "guardReveal": {
-      s.setGuardReveal({
-        guesserName: msg.guesserName,
-        targetName: msg.targetName,
-        guess: msg.guess,
-        correct: msg.correct,
+      enqueueAnim({
+        kind: "guardReveal",
+        data: {
+          guesserName: msg.guesserName,
+          targetName: msg.targetName,
+          guess: msg.guess,
+          correct: msg.correct,
+        },
       });
+      if (msg.correct) {
+        addLog(`Guard: ${msg.targetName} had the ${msg.guess}! Eliminated!`, "elimination");
+      } else {
+        addLog(`Guard: ${msg.targetName} did not have the ${msg.guess}`, "effect");
+      }
       break;
     }
 
     case "princeDiscard": {
-      s.setPrinceDiscard({
-        card: msg.card,
-        targetName: msg.targetName,
+      enqueueAnim({
+        kind: "princeDiscard",
+        data: {
+          card: msg.card,
+          targetName: msg.targetName,
+        },
       });
+      if (msg.card.name === "Princess") {
+        addLog(`Prince: ${msg.targetName} discards Princess! Eliminated!`, "elimination");
+      } else {
+        addLog(`Prince: ${msg.targetName} discards ${msg.card.name}`, "effect");
+      }
       break;
     }
 
@@ -297,12 +432,14 @@ function handleMessage(msg: ServerMessage, roomCode: string): void {
         `Round over: ${msg.result.winnerName} wins! (${msg.result.reason})${spyMsg}`
       );
       clearToastAfterDelay(5000);
+      addLog(`Round over: ${msg.result.winnerName} wins! (${msg.result.reason})${spyMsg}`, "round");
       break;
     }
 
     case "gameOver": {
       s.setToast(`Game over! ${msg.winnerName} wins!`);
       clearToastAfterDelay(8000);
+      addLog(`Game over! ${msg.winnerName} wins!`, "round");
       break;
     }
   }

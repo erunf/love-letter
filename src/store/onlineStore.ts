@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import type { Card, CardName } from "../types/game";
 import type { GameSnapshot, SnapshotPlayer } from "../types/protocol";
+import type { LogEntry } from "../components/ui/ActionLog";
 
 // ─── Store Types ─────────────────────────────────────────────────────
 
@@ -20,8 +21,10 @@ interface OnlineState {
   // UI state
   error: string | null;
   toast: string | null;
+  logEntries: LogEntry[];
 
   // Animation state
+  animQueueSize: number;
   cardAnnouncement: {
     card: Card;
     playerName: string;
@@ -38,6 +41,13 @@ interface OnlineState {
     yourName: string;
     theirName: string;
     loserId: string | null;
+  } | null;
+  baronResult: {
+    playerName: string;
+    targetName: string;
+    loserName: string | null;
+    loserCard: Card | null;
+    isTie: boolean;
   } | null;
   guardReveal: {
     guesserName: string;
@@ -60,6 +70,9 @@ interface OnlineActions {
   setSnapshot: (snapshot: GameSnapshot | null) => void;
   setError: (error: string | null) => void;
   setToast: (toast: string | null) => void;
+  addLogEntry: (entry: LogEntry) => void;
+  clearLog: () => void;
+  setAnimQueueSize: (size: number) => void;
   setCardAnnouncement: (
     info: {
       card: Card;
@@ -76,6 +89,15 @@ interface OnlineActions {
       yourName: string;
       theirName: string;
       loserId: string | null;
+    } | null
+  ) => void;
+  setBaronResult: (
+    info: {
+      playerName: string;
+      targetName: string;
+      loserName: string | null;
+      loserCard: Card | null;
+      isTie: boolean;
     } | null
   ) => void;
   setGuardReveal: (
@@ -105,9 +127,12 @@ const initialState: OnlineState = {
   snapshot: null,
   error: null,
   toast: null,
+  logEntries: [],
+  animQueueSize: 0,
   cardAnnouncement: null,
   priestPeek: null,
   baronReveal: null,
+  baronResult: null,
   guardReveal: null,
   princeDiscard: null,
 };
@@ -125,9 +150,14 @@ export const useOnlineStore = create<OnlineStore>((set) => ({
   setSnapshot: (snapshot) => set({ snapshot }),
   setError: (error) => set({ error }),
   setToast: (toast) => set({ toast }),
+  addLogEntry: (entry) =>
+    set((state) => ({ logEntries: [...state.logEntries.slice(-49), entry] })),
+  clearLog: () => set({ logEntries: [] }),
+  setAnimQueueSize: (animQueueSize) => set({ animQueueSize }),
   setCardAnnouncement: (cardAnnouncement) => set({ cardAnnouncement }),
   setPriestPeek: (priestPeek) => set({ priestPeek }),
   setBaronReveal: (baronReveal) => set({ baronReveal }),
+  setBaronResult: (baronResult) => set({ baronResult }),
   setGuardReveal: (guardReveal) => set({ guardReveal }),
   setPrinceDiscard: (princeDiscard) => set({ princeDiscard }),
 

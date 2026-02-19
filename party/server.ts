@@ -1367,6 +1367,27 @@ export default class LoveLetterServer implements Party.Server {
           theirName: player.name,
         });
 
+        // Send baron result to uninvolved players
+        const isTie = loserId === null;
+        const loserName = loserId
+          ? (loserId === playerId ? player.name : target.name)
+          : null;
+        const loserCard = loserId
+          ? (loserId === playerId ? myCard : theirCard)
+          : null;
+        for (const p of this.state.gameState.players) {
+          if (p.id !== playerId && p.id !== target.id) {
+            this.sendToPlayer(p.id, {
+              type: "baronResult",
+              playerName: player.name,
+              targetName: target.name,
+              loserName,
+              loserCard,
+              isTie,
+            });
+          }
+        }
+
         // Track known cards for both
         player.knownCards.push({
           playerId: target.id,

@@ -2,7 +2,7 @@
 // Wraps the online game with PartyKit connection, SendContext, and
 // phase-based routing.
 
-import { createContext, useContext, useCallback, useEffect, useState, useRef } from "react";
+import { createContext, useContext, useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Card, CardName } from "./types/game";
 import type { ClientMessage, GameSnapshot } from "./types/protocol";
@@ -18,6 +18,7 @@ import { OrnamentRow } from "./components/ui/Ornaments";
 import { BackgroundScene } from "./components/ui/BackgroundScene";
 import { THEME, CARD_COLORS } from "./styles/loveLetterStyles";
 import { getCardDef } from "./constants/loveLetter";
+import { ActionLog } from "./components/ui/ActionLog";
 
 // ─── Send Context ────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ export function OnlineApp({ roomCode, onLeave }: OnlineAppProps) {
   const yourPlayerId = useOnlineStore((s) => s.yourPlayerId);
   const error = useOnlineStore((s) => s.error);
   const hasActiveOverlays = useOnlineStore(
-    (s) => !!(s.cardAnnouncement || s.guardReveal || s.baronReveal || s.princeDiscard)
+    (s) => !!(s.cardAnnouncement || s.guardReveal || s.baronReveal || s.baronResult || s.princeDiscard || s.animQueueSize > 0)
   );
 
   useEffect(() => {
@@ -849,6 +850,130 @@ function OnlineBaronRevealOverlay({
   );
 }
 
+// ─── Baron Result Overlay (for uninvolved players) ─────────────────
+
+function OnlineBaronResultOverlay({
+  playerName,
+  targetName,
+  loserName,
+  loserCard,
+  isTie,
+  onDismiss,
+}: {
+  playerName: string;
+  targetName: string;
+  loserName: string | null;
+  loserCard: Card | null;
+  isTie: boolean;
+  onDismiss: () => void;
+}) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 3500);
+    return () => clearTimeout(timer);
+  }, [onDismiss]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onDismiss}
+    >
+      <div className="absolute inset-0 bg-black/50" />
+      <motion.div
+        className="glass-modal relative z-10 p-6 text-center max-w-sm"
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.8, opacity: 0 }}
+      >
+        <h3
+          className="text-lg font-bold mb-1"
+          style={{ fontFamily: "'Cinzel', serif", color: THEME.goldLight }}
+        >
+          Baron&apos;s Comparison
+        </h3>
+        <OrnamentRow symbol="seal" className="my-3" />
+        <p className="text-sm mb-3" style={{ color: THEME.textSecondary }}>
+          {playerName} compared hands with {targetName}
+        </p>
+        {isTie ? (
+          <p
+            className="text-sm font-semibold"
+            style={{ color: THEME.textSecondary }}
+          >
+            Tie! No one is eliminated.
+          </p>
+        ) : (
+          <motion.div
+            className="flex flex-col items-center gap-3"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+          >
+            <p
+              className="text-sm font-semibold"
+              style={{ color: THEME.crimsonLight }}
+            >
+              {loserName} is eliminated!
+            </p>
+            {loserCard && (
+              <div className="relative">
+                <motion.div
+                  initial={{ rotateY: 90 }}
+                  animate={{ rotateY: 0 }}
+                  transition={{ duration: 0.4, delay: 0.5 }}
+                >
+                  <CharacterCard card={loserCard} size="md" />
+                </motion.div>
+                <motion.div
+                  className="absolute inset-0 flex items-center justify-center"
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 1, type: "spring", damping: 12, stiffness: 200 }}
+                >
+                  <svg width="64" height="64" viewBox="0 0 64 64">
+                    <circle
+                      cx="32"
+                      cy="32"
+                      r="28"
+                      fill="rgba(0,0,0,0.5)"
+                      stroke={THEME.crimsonLight}
+                      strokeWidth="2.5"
+                      opacity="0.7"
+                    />
+                    <line
+                      x1="20"
+                      y1="20"
+                      x2="44"
+                      y2="44"
+                      stroke={THEME.crimsonLight}
+                      strokeWidth="5"
+                      strokeLinecap="round"
+                    />
+                    <line
+                      x1="44"
+                      y1="20"
+                      x2="20"
+                      y2="44"
+                      stroke={THEME.crimsonLight}
+                      strokeWidth="5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </motion.div>
+              </div>
+            )}
+            <p className="text-xs" style={{ color: THEME.textMuted }}>
+              Tap anywhere to dismiss
+            </p>
+          </motion.div>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ─── Prince Discard Overlay ────────────────────────────────────────
 
 function OnlinePrinceDiscardOverlay({
@@ -981,44 +1106,24 @@ function OnlineGameScreen() {
   const cardAnnouncement = useOnlineStore((s) => s.cardAnnouncement);
   const priestPeek = useOnlineStore((s) => s.priestPeek);
   const baronReveal = useOnlineStore((s) => s.baronReveal);
+  const baronResult = useOnlineStore((s) => s.baronResult);
   const guardReveal = useOnlineStore((s) => s.guardReveal);
   const princeDiscard = useOnlineStore((s) => s.princeDiscard);
+  const logEntries = useOnlineStore((s) => s.logEntries);
 
   const [showPriestPeek, setShowPriestPeek] = useState<{
     card: Card;
     targetName: string;
   } | null>(null);
 
-  // Show turn banner when current player changes
-  const prevPlayerIndexRef = useRef<number | null>(null);
-  const [turnBanner, setTurnBanner] = useState<{
-    name: string;
-    color: string;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!snapshot || snapshot.phase !== "playing") {
-      prevPlayerIndexRef.current = null;
-      return;
-    }
-    const idx = snapshot.currentPlayerIndex;
-    if (prevPlayerIndexRef.current !== null && prevPlayerIndexRef.current !== idx) {
-      const player = snapshot.players[idx];
-      if (player) {
-        setTurnBanner({ name: player.name, color: player.color });
-        const timer = setTimeout(() => setTurnBanner(null), 1300);
-        return () => clearTimeout(timer);
-      }
-    }
-    prevPlayerIndexRef.current = idx;
-  }, [snapshot?.currentPlayerIndex, snapshot?.phase, snapshot?.players]);
+  const [showLog, setShowLog] = useState(false);
 
   // Show priest peek after card announcement and other overlays clear
   useEffect(() => {
-    if (!priestPeek || cardAnnouncement || guardReveal || baronReveal || princeDiscard) return;
+    if (!priestPeek || cardAnnouncement || guardReveal || baronReveal || baronResult || princeDiscard) return;
     setShowPriestPeek(priestPeek);
     useOnlineStore.getState().setPriestPeek(null);
-  }, [priestPeek, cardAnnouncement, guardReveal, baronReveal, princeDiscard]);
+  }, [priestPeek, cardAnnouncement, guardReveal, baronReveal, baronResult, princeDiscard]);
 
   if (!snapshot || !yourPlayerId) return null;
 
@@ -1030,54 +1135,10 @@ function OnlineGameScreen() {
   const myHand = me?.hand ?? [];
 
   // Gate modals on no active overlays
-  const hasActiveOverlay = !!(cardAnnouncement || guardReveal || baronReveal || princeDiscard);
+  const hasActiveOverlay = !!(cardAnnouncement || guardReveal || baronReveal || baronResult || princeDiscard);
 
   return (
     <div className="w-full h-dvh flex flex-col relative overflow-hidden">
-      {/* Turn Banner */}
-      <AnimatePresence>
-        {turnBanner && !hasActiveOverlay && (
-          <motion.div
-            className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <div className="absolute inset-0 bg-black/30 pointer-events-none" />
-            <motion.div
-              className="relative z-10 flex flex-col items-center gap-2"
-              initial={{ scale: 0.5, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.8, opacity: 0 }}
-              transition={{ type: "spring", damping: 20, stiffness: 300 }}
-            >
-              <div
-                className="w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold"
-                style={{
-                  background: `${turnBanner.color}30`,
-                  color: turnBanner.color,
-                  border: `2px solid ${turnBanner.color}60`,
-                }}
-              >
-                {turnBanner.name.charAt(0)}
-              </div>
-              <div
-                className="text-2xl font-bold"
-                style={{
-                  fontFamily: "'Cinzel', serif",
-                  color: turnBanner.color,
-                  textShadow: `0 0 20px ${turnBanner.color}60`,
-                }}
-              >
-                {turnBanner.name}&apos;s Turn
-              </div>
-              <OrnamentRow symbol="fleur" className="mt-1" />
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Card Play Announcement */}
       <AnimatePresence>
         {cardAnnouncement && (
@@ -1110,13 +1171,38 @@ function OnlineGameScreen() {
             )}
           </span>
         </div>
-        <div className="glass-subtle px-3 py-1 rounded-lg flex items-center gap-1">
-          <CardBack size="sm" className="!w-4 !h-6 !rounded" />
-          <span className="text-xs" style={{ color: THEME.textSecondary }}>
-            {snapshot.deckSize ?? 0}
-          </span>
+        <div className="flex items-center gap-2">
+          <div className="glass-subtle px-3 py-1 rounded-lg flex items-center gap-1">
+            <CardBack size="sm" className="!w-4 !h-6 !rounded" />
+            <span className="text-xs" style={{ color: THEME.textSecondary }}>
+              {snapshot.deckSize ?? 0}
+            </span>
+          </div>
+          <button
+            onClick={() => setShowLog((v) => !v)}
+            className="glass-subtle px-2 py-1 rounded-lg text-xs transition-all hover:brightness-125"
+            style={{ color: showLog ? THEME.gold : THEME.textMuted, fontSize: 10 }}
+          >
+            Log
+          </button>
         </div>
       </div>
+
+      {/* Action Log (collapsible) */}
+      <AnimatePresence>
+        {showLog && (
+          <motion.div
+            className="px-3 w-full"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ overflow: "hidden" }}
+          >
+            <ActionLog entries={logEntries} maxHeight={120} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col items-center justify-between p-3 pb-4 min-h-0">
@@ -1271,9 +1357,9 @@ function OnlineGameScreen() {
         </div>
       </div>
 
-      {/* ─── Reveal Overlays (gated on card announcement) ──────────── */}
+      {/* ─── Reveal Overlays (queued sequentially) ─────────────────── */}
       <AnimatePresence>
-        {!cardAnnouncement && guardReveal && (
+        {guardReveal && (
           <OnlineGuardRevealOverlay
             guesserName={guardReveal.guesserName}
             targetName={guardReveal.targetName}
@@ -1285,7 +1371,7 @@ function OnlineGameScreen() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {!cardAnnouncement && baronReveal && (
+        {baronReveal && (
           <OnlineBaronRevealOverlay
             yourCard={baronReveal.yourCard}
             theirCard={baronReveal.theirCard}
@@ -1299,7 +1385,20 @@ function OnlineGameScreen() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {!cardAnnouncement && princeDiscard && (
+        {baronResult && (
+          <OnlineBaronResultOverlay
+            playerName={baronResult.playerName}
+            targetName={baronResult.targetName}
+            loserName={baronResult.loserName}
+            loserCard={baronResult.loserCard}
+            isTie={baronResult.isTie}
+            onDismiss={() => useOnlineStore.getState().setBaronResult(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {princeDiscard && (
           <OnlinePrinceDiscardOverlay
             card={princeDiscard.card}
             targetName={princeDiscard.targetName}
