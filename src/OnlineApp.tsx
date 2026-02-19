@@ -2,7 +2,7 @@
 // Wraps the online game with PartyKit connection, SendContext, and
 // phase-based routing.
 
-import { createContext, useContext, useCallback, useEffect, useState } from "react";
+import { createContext, useContext, useCallback, useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Card, CardName } from "./types/game";
 import type { ClientMessage, GameSnapshot } from "./types/protocol";
@@ -1111,12 +1111,54 @@ function OnlineGameScreen() {
   const princeDiscard = useOnlineStore((s) => s.princeDiscard);
   const logEntries = useOnlineStore((s) => s.logEntries);
 
+  // Gate modals on no active overlays
+  const hasActiveOverlay = !!(cardAnnouncement || guardReveal || baronReveal || baronResult || princeDiscard);
+
   const [showPriestPeek, setShowPriestPeek] = useState<{
     card: Card;
     targetName: string;
   } | null>(null);
 
   const [showLog, setShowLog] = useState(false);
+
+  // Turn banner - shows when current player changes
+  const prevPlayerIndexRef = useRef<number | null>(null);
+  const [turnBanner, setTurnBanner] = useState<{
+    name: string;
+    color: string;
+  } | null>(null);
+
+  // Keep snapshot ref for looking up player info without adding to deps
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+
+  const currentPlayerIndex = snapshot?.currentPlayerIndex ?? -1;
+  const phase = snapshot?.phase;
+
+  useEffect(() => {
+    if (phase !== "playing") {
+      prevPlayerIndexRef.current = null;
+      setTurnBanner(null);
+      return;
+    }
+    if (prevPlayerIndexRef.current !== null && prevPlayerIndexRef.current !== currentPlayerIndex) {
+      const snap = snapshotRef.current;
+      const player = snap?.players[currentPlayerIndex];
+      if (player) {
+        setTurnBanner({ name: player.name, color: player.color });
+        const timer = setTimeout(() => setTurnBanner(null), 1500);
+        return () => clearTimeout(timer);
+      }
+    }
+    prevPlayerIndexRef.current = currentPlayerIndex;
+  }, [currentPlayerIndex, phase]);
+
+  // Clear turn banner when an overlay starts (so it doesn't flash back after overlay)
+  useEffect(() => {
+    if (hasActiveOverlay) {
+      setTurnBanner(null);
+    }
+  }, [hasActiveOverlay]);
 
   // Show priest peek after card announcement and other overlays clear
   useEffect(() => {
@@ -1134,11 +1176,53 @@ function OnlineGameScreen() {
   const faceUpCards = snapshot.faceUpCards ?? [];
   const myHand = me?.hand ?? [];
 
-  // Gate modals on no active overlays
-  const hasActiveOverlay = !!(cardAnnouncement || guardReveal || baronReveal || baronResult || princeDiscard);
-
   return (
     <div className="w-full h-dvh flex flex-col relative overflow-hidden">
+      {/* Turn Banner */}
+      <AnimatePresence>
+        {turnBanner && !hasActiveOverlay && (
+          <motion.div
+            key="turn-banner"
+            className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="absolute inset-0 bg-black/30 pointer-events-none" />
+            <motion.div
+              className="relative z-10 flex flex-col items-center gap-2"
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+            >
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold"
+                style={{
+                  background: `${turnBanner.color}30`,
+                  color: turnBanner.color,
+                  border: `2px solid ${turnBanner.color}60`,
+                }}
+              >
+                {turnBanner.name.charAt(0)}
+              </div>
+              <div
+                className="text-2xl font-bold"
+                style={{
+                  fontFamily: "'Cinzel', serif",
+                  color: turnBanner.color,
+                  textShadow: `0 0 20px ${turnBanner.color}60`,
+                }}
+              >
+                {turnBanner.name}&apos;s Turn
+              </div>
+              <OrnamentRow symbol="fleur" className="mt-1" />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Card Play Announcement */}
       <AnimatePresence>
         {cardAnnouncement && (
