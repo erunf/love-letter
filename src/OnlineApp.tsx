@@ -40,6 +40,9 @@ export function OnlineApp({ roomCode, onLeave }: OnlineAppProps) {
   const toast = useOnlineStore((s) => s.toast);
   const yourPlayerId = useOnlineStore((s) => s.yourPlayerId);
   const error = useOnlineStore((s) => s.error);
+  const hasActiveOverlays = useOnlineStore(
+    (s) => !!(s.cardAnnouncement || s.guardReveal || s.baronReveal || s.princeDiscard)
+  );
 
   useEffect(() => {
     return () => {
@@ -140,9 +143,13 @@ export function OnlineApp({ roomCode, onLeave }: OnlineAppProps) {
               {phase === "waiting" && (
                 <OnlineWaitingRoom onLeave={handleLeave} />
               )}
-              {phase === "playing" && <OnlineGameScreen />}
-              {phase === "roundEnd" && <OnlineRoundEndScreen />}
-              {phase === "gameOver" && (
+              {(phase === "playing" ||
+                ((phase === "roundEnd" || phase === "gameOver") &&
+                  hasActiveOverlays)) && <OnlineGameScreen />}
+              {phase === "roundEnd" && !hasActiveOverlays && (
+                <OnlineRoundEndScreen />
+              )}
+              {phase === "gameOver" && !hasActiveOverlays && (
                 <OnlineGameOverScreen onLeave={handleLeave} />
               )}
             </>
@@ -1026,7 +1033,7 @@ function OnlineGameScreen() {
   const hasActiveOverlay = !!(cardAnnouncement || guardReveal || baronReveal || princeDiscard);
 
   return (
-    <div className="w-full min-h-screen flex flex-col relative">
+    <div className="w-full h-dvh flex flex-col relative overflow-hidden">
       {/* Turn Banner */}
       <AnimatePresence>
         {turnBanner && !hasActiveOverlay && (
@@ -1112,9 +1119,9 @@ function OnlineGameScreen() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col items-center gap-3 p-3">
-        {/* Opponents */}
-        <div className="flex flex-wrap justify-center gap-2 w-full">
+      <div className="flex-1 flex flex-col items-center justify-between p-3 pb-4 min-h-0">
+        {/* Top: Opponents */}
+        <div className="flex flex-wrap justify-center gap-2 w-full shrink-0">
           {players
             .filter((p) => p.id !== yourPlayerId)
             .map((player) => {
@@ -1131,134 +1138,137 @@ function OnlineGameScreen() {
             })}
         </div>
 
-        {/* Center: Deck + Face-up cards */}
-        <div className="flex items-center justify-center gap-6 py-3">
-          <div className="flex flex-col items-center gap-1">
-            <div className="relative">
-              <CardBack size="sm" count={snapshot.deckSize ?? 0} />
-              {(snapshot.deckSize ?? 0) > 2 && (
-                <div
-                  className="absolute rounded-lg"
-                  style={{
-                    width: 60,
-                    height: 90,
-                    top: 2,
-                    left: 2,
-                    zIndex: -1,
-                    background: `linear-gradient(135deg, ${THEME.crimsonDark}, ${THEME.waxSealDark})`,
-                    border: `1px solid ${THEME.gold}10`,
-                  }}
-                />
-              )}
-            </div>
-            <span
-              className="text-xs"
-              style={{ color: THEME.textMuted, fontSize: 9 }}
-            >
-              Deck
-            </span>
-          </div>
-
-          {faceUpCards.length > 0 && (
+        {/* Center: Deck + Face-up cards + Turn indicator */}
+        <div className="flex flex-col items-center gap-2 shrink-0">
+          <div className="flex items-center justify-center gap-6">
             <div className="flex flex-col items-center gap-1">
-              <div className="flex gap-1">
-                {faceUpCards.map((card, i) => (
-                  <CharacterCard
-                    key={`fu-${i}`}
-                    card={card}
-                    size="sm"
-                    disabled
+              <div className="relative">
+                <CardBack size="sm" count={snapshot.deckSize ?? 0} />
+                {(snapshot.deckSize ?? 0) > 2 && (
+                  <div
+                    className="absolute rounded-lg"
+                    style={{
+                      width: 60,
+                      height: 90,
+                      top: 2,
+                      left: 2,
+                      zIndex: -1,
+                      background: `linear-gradient(135deg, ${THEME.crimsonDark}, ${THEME.waxSealDark})`,
+                      border: `1px solid ${THEME.gold}10`,
+                    }}
                   />
-                ))}
+                )}
               </div>
               <span
                 className="text-xs"
                 style={{ color: THEME.textMuted, fontSize: 9 }}
               >
-                Removed
+                Deck
               </span>
             </div>
+
+            {faceUpCards.length > 0 && (
+              <div className="flex flex-col items-center gap-1">
+                <div className="flex gap-1">
+                  {faceUpCards.map((card, i) => (
+                    <CharacterCard
+                      key={`fu-${i}`}
+                      card={card}
+                      size="sm"
+                      disabled
+                    />
+                  ))}
+                </div>
+                <span
+                  className="text-xs"
+                  style={{ color: THEME.textMuted, fontSize: 9 }}
+                >
+                  Removed
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Turn Phase Indicator */}
+          {isMyTurn && snapshot.turnPhase === "choosing" && !hasActiveOverlay && (
+            <motion.div
+              className="glass-subtle px-4 py-2 rounded-lg text-center"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <p
+                className="text-sm font-semibold"
+                style={{ color: THEME.goldLight }}
+              >
+                Choose a card to play
+              </p>
+            </motion.div>
           )}
         </div>
 
-        {/* Turn Phase Indicator */}
-        {isMyTurn && snapshot.turnPhase === "choosing" && !hasActiveOverlay && (
-          <motion.div
-            className="glass-subtle px-4 py-2 rounded-lg text-center"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <p
-              className="text-sm font-semibold"
-              style={{ color: THEME.goldLight }}
-            >
-              Choose a card to play
-            </p>
-          </motion.div>
-        )}
-
-        {/* Your Hand */}
-        {me && me.isAlive && myHand.length > 0 && (
-          <div className="mt-auto pt-4">
-            <div
-              className="text-xs uppercase tracking-wider text-center mb-2"
-              style={{
-                color: THEME.gold,
-                fontFamily: "'Cinzel', serif",
-                fontSize: 9,
-              }}
-            >
-              Your Hand
+        {/* Bottom: Your Hand or Eliminated */}
+        <div className="shrink-0">
+          {me && me.isAlive && myHand.length > 0 && (
+            <div>
+              <div
+                className="text-xs uppercase tracking-wider text-center mb-2"
+                style={{
+                  color: THEME.gold,
+                  fontFamily: "'Cinzel', serif",
+                  fontSize: 9,
+                }}
+              >
+                Your Hand
+              </div>
+              <div className="flex gap-3 justify-center">
+                <AnimatePresence>
+                  {myHand.map((card, idx) => {
+                    const isPlayable =
+                      isMyTurn && snapshot.turnPhase === "choosing" && !hasActiveOverlay;
+                    return (
+                      <motion.div
+                        key={`hand-${card.name}-${card.value}-${idx}`}
+                        initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -20, scale: 0.9 }}
+                        layout
+                      >
+                        <CharacterCard
+                          card={card}
+                          size="lg"
+                          onClick={() => {
+                            if (isPlayable) {
+                              send({ type: "playCard", cardIndex: idx });
+                            }
+                          }}
+                          disabled={!isPlayable}
+                          highlighted={isPlayable}
+                        />
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
             </div>
-            <div className="flex gap-3 justify-center">
-              <AnimatePresence>
-                {myHand.map((card, idx) => {
-                  const isPlayable =
-                    isMyTurn && snapshot.turnPhase === "choosing" && !hasActiveOverlay;
-                  return (
-                    <motion.div
-                      key={`hand-${card.name}-${card.value}-${idx}`}
-                      initial={{ opacity: 0, y: 20, scale: 0.9 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -20, scale: 0.9 }}
-                      layout
-                    >
-                      <CharacterCard
-                        card={card}
-                        size="lg"
-                        onClick={() => {
-                          if (isPlayable) {
-                            send({ type: "playCard", cardIndex: idx });
-                          }
-                        }}
-                        disabled={!isPlayable}
-                        highlighted={isPlayable}
-                      />
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          </div>
-        )}
+          )}
 
-        {/* Eliminated message */}
-        {me && !me.isAlive && (
-          <div className="mt-auto py-6 text-center">
-            <p
-              className="text-lg font-bold"
-              style={{
-                fontFamily: "'Cinzel', serif",
-                color: THEME.eliminated,
-              }}
-            >
-              You have been eliminated
-            </p>
-            <p className="text-sm mt-1" style={{ color: THEME.textMuted }}>
-              Waiting for the round to end...
-            </p>
-          </div>
-        )}
+          {me && !me.isAlive && (
+            <div className="py-2 text-center">
+              <p
+                className="text-lg font-bold"
+                style={{
+                  fontFamily: "'Cinzel', serif",
+                  color: THEME.eliminated,
+                }}
+              >
+                You have been eliminated
+              </p>
+              <p className="text-sm mt-1" style={{ color: THEME.textMuted }}>
+                Waiting for the round to end...
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ─── Reveal Overlays (gated on card announcement) ──────────── */}
